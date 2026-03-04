@@ -2,11 +2,12 @@ package main
 
 import (
 	"bufio"
-	"go_test1/task3/unpack"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/timur902/stack_queue/internal/unpack"
 )
 
 func main() {
@@ -14,6 +15,13 @@ func main() {
 	packMode := flag.Bool("pack", false, "pack string")
 	unpackMode := flag.Bool("unpack", false, "unpack string")
 	daemon := flag.Bool("daemon", false, "daemon mode")
+
+	// Создаёшь NewRepository в том же пакете что и интерфейс, возвращаешь структуру которая его реализует
+	// Пробрасываешь в unpackPrv и вызываешь метода для бд уже оттуда.
+	// И соответсвенно всю логику работы с базой данных ты пишешь в методах структуры репозитория которую создал
+
+	unpackPrv := unpack.NewProvider()
+
 	flag.Parse()
 	if *daemon {
 		reader := bufio.NewScanner(os.Stdin)
@@ -27,20 +35,21 @@ func main() {
 
 			s := reader.Text()
 
-			run(s, *packMode, *unpackMode)
+			run(unpackPrv, s, *packMode, *unpackMode)
 		}
 	}
-	run(*input, *packMode, *unpackMode)
+	run(unpackPrv, *input, *packMode, *unpackMode)
 }
-func run(s string, packMode bool, unpackMode bool) {
+
+func run(unpackPrv *unpack.Provider, s string, packMode bool, unpackMode bool) {
 	if packMode {
 
-		fmt.Println(unpack.Pack(s))
+		fmt.Println(unpackPrv.Pack(s))
 		return
 	}
 	if unpackMode {
 
-		res, err := unpack.Unpack(s)
+		res, err := unpackPrv.Unpack(s)
 		if err != nil {
 			log.Println(err)
 			return
