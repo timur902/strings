@@ -3,6 +3,7 @@ package unpack
 import "testing"
 
 func TestUnpack(t *testing.T) {
+	prv := NewProvider(nil)
 	tests := []struct {
 		name    string
 		input   string
@@ -16,22 +17,18 @@ func TestUnpack(t *testing.T) {
 		{"two digits", "aaa10b", "", true},
 		{"zero repeat", "a0b", "b", false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Unpack(tt.input)
-
+			got, err := prv.Unpack(tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error")
 				}
 				return
 			}
-
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-
 			if got != tt.want {
 				t.Fatalf("expected %s got %s", tt.want, got)
 			}
