@@ -2,7 +2,13 @@ package repository
 
 import "github.com/google/uuid"
 
+type Result struct {
+	RequestID      uuid.UUID
+	InputString    string
+	UnpackedResult string
+}
+
 type Repository interface {
-	InsertString(str string) (uuid.UUID, error) //uuid, error
-	SelectByID(id uuid.UUID) (string, error) // найденная строка/ не найдено 
+	InsertResult(requestID uuid.UUID, input string, result string) error
+	SelectByID(id uuid.UUID) ([]Result, error)
 }
