@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/timur902/strings/internal/repository"
@@ -20,13 +22,15 @@ func main() {
 	daemon := flag.Bool("daemon", false, "daemon mode")
 	getMode := flag.String("get", "", "get results by request id")
 	flag.Parse()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	dbURL := "postgres://postgres:postgres@localhost:5432/unpacker"
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("failed to create db pool: %v", err)
 	}
 	defer pool.Close()
-	err = pool.Ping(context.Background())
+	err = pool.Ping(ctx)
 	if err != nil {
 		log.Fatalf("failed to ping db: %v", err)
 	}
@@ -35,36 +39,46 @@ func main() {
 	if *daemon {
 		reader := bufio.NewScanner(os.Stdin)
 		for {
+			select {
+			case <-ctx.Done():
+				log.Println("shutting down")
+				return
+			default:
+			}
 			fmt.Print("Введите строку для распаковки: ")
 			if !reader.Scan() {
 				return
 			}
 			s := reader.Text()
-			requestID, res, err := unpackPrv.UnpackAndSave(s)
+			resp, err := unpackPrv.UnpackAndSave(ctx, &unpack.UnpackAndSaveReq{
+				SrcStr: s,
+			})
 			if err != nil {
 				log.Println(err)
 				continue
 			}
-			fmt.Println("request id:", requestID)
-			fmt.Println("result:", res)
+			fmt.Println("request id:", resp.RequestID)
+			fmt.Println("result:", resp.ResStr)
 		}
 	}
-	run(unpackPrv, *input, *packMode, *unpackMode, *getMode)
+	run(ctx, unpackPrv, *input, *packMode, *unpackMode, *getMode)
 }
 
-func run(unpackPrv *unpack.Provider, s string, packMode bool, unpackMode bool, getMode string) {
+func run(ctx context.Context, unpackPrv *unpack.Provider, s string, packMode bool, unpackMode bool, getMode string) {
 	if packMode {
 		fmt.Println(unpackPrv.Pack(s))
 		return
 	}
 	if unpackMode {
-		requestID, res, err := unpackPrv.UnpackAndSave(s)
+		resp, err := unpackPrv.UnpackAndSave(ctx, &unpack.UnpackAndSaveReq{
+			SrcStr: s,
+		})
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		fmt.Println("request id:", requestID)
-		fmt.Println("result:", res)
+		fmt.Println("request id:", resp.RequestID)
+		fmt.Println("result:", resp.ResStr)
 		return
 	}
 	if getMode != "" {
@@ -73,7 +87,7 @@ func run(unpackPrv *unpack.Provider, s string, packMode bool, unpackMode bool, g
 			log.Println("invalid uuid:", err)
 			return
 		}
-		results, err := unpackPrv.GetByID(id)
+		results, err := unpackPrv.GetByID(ctx, id)
 		if err != nil {
 			log.Println(err)
 			return

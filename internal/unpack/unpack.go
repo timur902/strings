@@ -1,6 +1,7 @@
 package unpack
 
 import (
+	"context"
 	"strings"
 	"github.com/google/uuid"
 	"github.com/timur902/strings/internal/repository"
@@ -28,33 +29,37 @@ func (p *Provider) Pack(s string) string {
 			count++
 			continue
 		}
-
 		builder.WriteRune(rs[i-1])
-
 		if count > 1 {
 			builder.WriteString(string(rune('0' + count)))
 		}
 		count = 1
 	}
-
 	return builder.String()
 }
 
-func (p *Provider) UnpackAndSave(s string) (uuid.UUID, string, error) {
-	requestID := uuid.New()
-	res, err := p.Unpack(s)
-	if err != nil {
-		return uuid.Nil, "", err
+func (p *Provider) UnpackAndSave(ctx context.Context, req *UnpackAndSaveReq) (*UnpackAndSaveResp, error) {
+	var err error
+	resp := &UnpackAndSaveResp{
+		RequestID: uuid.New(),
 	}
-	err = p.repo.InsertResult(requestID, s, res)
+	resp.ResStr, err = p.Unpack(req.SrcStr)
 	if err != nil {
-		return uuid.Nil, "", err
+		return nil, err
 	}
-	return requestID, res, nil
+	err = p.repo.InsertResult(ctx, &repository.InsertResultReq{
+		RequestID:      resp.RequestID,
+		InputString:    req.SrcStr,
+		UnpackedResult: resp.ResStr,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
-func (p *Provider) GetByID(id uuid.UUID) ([]repository.Result, error) {
-	return p.repo.SelectByID(id)
+func (p *Provider) GetByID(ctx context.Context, id uuid.UUID) ([]repository.Result, error) {
+	return p.repo.SelectByID(ctx, id)
 }
 
 func (p *Provider) Unpack(s string) (string, error) {
@@ -88,19 +93,15 @@ func (p *Provider) Unpack(s string) (string, error) {
 			if !hasPrev {
 				return "", ErrInvalidString
 			}
-
 			if prevWasDigit {
 				return "", ErrInvalidString
 			}
-
 			count := int(r - '0')
-
 			if count == 0 {
 				out = out[:len(out)-1]
 				prevWasDigit = true
 				continue
 			}
-
 			for j := 0; j < count-1; j++ {
 				out = append(out, prev)
 			}

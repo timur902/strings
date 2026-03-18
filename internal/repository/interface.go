@@ -1,14 +1,11 @@
 package repository
 
-import "github.com/google/uuid"
-
-type Result struct {
-	RequestID      uuid.UUID
-	InputString    string
-	UnpackedResult string
-}
+import (
+	"context"
+	"github.com/google/uuid"
+)
 
 type Repository interface {
-	InsertResult(requestID uuid.UUID, input string, result string) error
-	SelectByID(id uuid.UUID) ([]Result, error)
+	InsertResult(ctx context.Context, req *InsertResultReq) error
+	SelectByID(ctx context.Context, id uuid.UUID) ([]Result, error)
 }

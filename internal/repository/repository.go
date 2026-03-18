@@ -16,25 +16,25 @@ func NewRepository(pool *pgxpool.Pool) *PostgresRepository {
 	}
 }
 
-func (r *PostgresRepository) InsertResult(requestID uuid.UUID, input string, result string) error {
+func (r *PostgresRepository) InsertResult(ctx context.Context, req *InsertResultReq) error {
 	query := `
 		INSERT INTO unpack_results (request_id, input_string, unpacked_result)
 		VALUES ($1, $2, $3)
 	`
-	_, err := r.pool.Exec(context.Background(), query, requestID, input, result)
+	_, err := r.pool.Exec(ctx, query, req.RequestID, req.InputString, req.UnpackedResult)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *PostgresRepository) SelectByID(id uuid.UUID) ([]Result, error) {
+func (r *PostgresRepository) SelectByID(ctx context.Context, id uuid.UUID) ([]Result, error) {
 	query := `
 		SELECT request_id, input_string, unpacked_result
 		FROM unpack_results
 		WHERE request_id = $1
 	`
-	rows, err := r.pool.Query(context.Background(), query, id)
+	rows, err := r.pool.Query(ctx, query, id)
 	if err != nil {
 		return nil, err
 	}
