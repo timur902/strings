@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"flag"
-	"fmt"
+	"encoding/json"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,12 +16,6 @@ import (
 )
 
 func main() {
-	input := flag.String("input", "", "input string")
-	packMode := flag.Bool("pack", false, "pack string")
-	unpackMode := flag.Bool("unpack", false, "unpack string")
-	daemon := flag.Bool("daemon", false, "daemon mode")
-	getMode := flag.String("get", "", "get results by request id")
-	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	dbURL := "postgres://postgres:postgres@localhost:5432/unpacker"
@@ -36,73 +30,131 @@ func main() {
 	}
 	repo := repository.NewRepository(pool)
 	unpackPrv := unpack.NewProvider(repo)
-	if *daemon {
-		reader := bufio.NewScanner(os.Stdin)
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("shutting down")
-				return
-			default:
-			}
-			fmt.Print("Введите строку для распаковки: ")
-			if !reader.Scan() {
-				return
-			}
-			s := reader.Text()
-			resp, err := unpackPrv.UnpackAndSave(ctx, &unpack.UnpackAndSaveReq{
-				SrcStr: s,
-			})
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			fmt.Println("request id:", resp.RequestID)
-			fmt.Println("result:", resp.ResStr)
-		}
-	}
-	run(ctx, unpackPrv, *input, *packMode, *unpackMode, *getMode)
-}
+	mux := http.NewServeMux()
 
-func run(ctx context.Context, unpackPrv *unpack.Provider, s string, packMode bool, unpackMode bool, getMode string) {
-	if packMode {
-		fmt.Println(unpackPrv.Pack(s))
-		return
-	}
-	if unpackMode {
-		resp, err := unpackPrv.UnpackAndSave(ctx, &unpack.UnpackAndSaveReq{
-			SrcStr: s,
+	mux.HandleFunc("/pack", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
+				Error: "method not allowed",
+			})
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "failed to read request body",
+			})
+			return
+		}
+		var req unpack.PackHTTPRequest
+		err = json.Unmarshal(body, &req)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "invalid json body",
+			})
+			return
+		}
+		res := unpackPrv.Pack(req.Input)
+		writeJSON(w, http.StatusOK, unpack.PackHTTPResponse{
+			Result: res,
+		})
+	})
+
+	mux.HandleFunc("/unpack", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
+				Error: "method not allowed",
+			})
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "failed to read request body",
+			})
+			return
+		}
+		var req unpack.UnpackHTTPRequest
+		err = json.Unmarshal(body, &req)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "invalid json body",
+			})
+			return
+		}
+		resp, err := unpackPrv.UnpackAndSave(r.Context(), &unpack.UnpackAndSaveReq{
+			SrcStr: req.Input,
 		})
 		if err != nil {
-			log.Println(err)
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: err.Error(),
+			})
 			return
 		}
-		fmt.Println("request id:", resp.RequestID)
-		fmt.Println("result:", resp.ResStr)
+		writeJSON(w, http.StatusOK, unpack.UnpackHTTPResponse{
+			RequestID: resp.RequestID.String(),
+			Result:    resp.ResStr,
+		})
+	})
+
+	mux.HandleFunc("/results", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
+				Error: "method not allowed",
+			})
+			return
+		}
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "id query param is required",
+			})
+			return
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+				Error: "invalid uuid",
+			})
+			return
+		}
+		results, err := unpackPrv.GetByID(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, unpack.ErrorResponse{
+				Error: err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, results)
+	})
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+	go func() {
+		<-ctx.Done()
+		err := server.Shutdown(context.Background())
+		if err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
+	log.Println("http server started on :8080")
+	err = server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, statusCode int, data any) {
+	respBytes, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "failed to marshal response", http.StatusInternalServerError)
 		return
 	}
-	if getMode != "" {
-		id, err := uuid.Parse(getMode)
-		if err != nil {
-			log.Println("invalid uuid:", err)
-			return
-		}
-		results, err := unpackPrv.GetByID(ctx, id)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		if len(results) == 0 {
-			log.Println("no results found")
-			return
-		}
-		for _, res := range results {
-			fmt.Println("request id:", res.RequestID)
-			fmt.Println("input string:", res.InputString)
-			fmt.Println("unpacked result:", res.UnpackedResult)
-			fmt.Println("---")
-		}
-		return
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, err = w.Write(append(respBytes, '\n'))
+	if err != nil {
+		log.Printf("failed to write response: %v", err)
 	}
-	log.Println("specify --pack or --unpack or --get")
 }

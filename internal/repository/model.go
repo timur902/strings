@@ -9,7 +9,7 @@ type InsertResultReq struct {
 }
 
 type Result struct {
-	RequestID      uuid.UUID
-	InputString    string
-	UnpackedResult string
+	RequestID      uuid.UUID `json:"request_id"`
+	InputString    string    `json:"input_string"`
+	UnpackedResult string    `json:"unpacked_result"`
 }
