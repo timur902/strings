@@ -2,10 +2,10 @@ package handler
 
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/timur902/strings/internal/unpack"
 )
@@ -20,112 +20,77 @@ func NewHandler(unpackPrv *unpack.Provider) *Handler {
 	}
 }
 
-func (h *Handler) Pack(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
-			Error: "method not allowed",
-		})
-		return
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
-			Error: "failed to read request body",
-		})
-		return
-	}
-	var req unpack.PackHTTPRequest
-	err = json.Unmarshal(body, &req)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+func (h *Handler) Pack(c *gin.Context) {
+	var req PackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeJSON(c, http.StatusBadRequest, ErrorResponse{
 			Error: "invalid json body",
 		})
 		return
 	}
 	res := h.unpackPrv.Pack(req.Input)
-	writeJSON(w, http.StatusOK, unpack.PackHTTPResponse{
+	writeJSON(c, http.StatusOK, PackResponse{
 		Result: res,
 	})
 }
 
-func (h *Handler) Unpack(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
-			Error: "method not allowed",
-		})
-		return
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
-			Error: "failed to read request body",
-		})
-		return
-	}
-	var req unpack.UnpackHTTPRequest
-	err = json.Unmarshal(body, &req)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+func (h *Handler) Unpack(c *gin.Context) {
+	var req UnpackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeJSON(c, http.StatusBadRequest, ErrorResponse{
 			Error: "invalid json body",
 		})
 		return
 	}
-	resp, err := h.unpackPrv.UnpackAndSave(r.Context(), &unpack.UnpackAndSaveReq{
+	resp, err := h.unpackPrv.UnpackAndSave(c.Request.Context(), &unpack.UnpackAndSaveReq{
 		SrcStr: req.Input,
 	})
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+		writeJSON(c, http.StatusBadRequest, ErrorResponse{
 			Error: err.Error(),
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, unpack.UnpackHTTPResponse{
+	writeJSON(c, http.StatusOK, UnpackResponse{
 		RequestID: resp.RequestID.String(),
 		Result:    resp.ResStr,
 	})
 }
 
-func (h *Handler) Results(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, unpack.ErrorResponse{
-			Error: "method not allowed",
-		})
-		return
-	}
-	idStr := r.URL.Query().Get("id")
+func (h *Handler) Results(c *gin.Context) {
+	idStr := c.Query("id")
 	if idStr == "" {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+		writeJSON(c, http.StatusBadRequest, ErrorResponse{
 			Error: "id query param is required",
 		})
 		return
 	}
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, unpack.ErrorResponse{
+		writeJSON(c, http.StatusBadRequest, ErrorResponse{
 			Error: "invalid uuid",
 		})
 		return
 	}
-	results, err := h.unpackPrv.GetByID(r.Context(), id)
+	results, err := h.unpackPrv.GetByID(c.Request.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, unpack.ErrorResponse{
+		writeJSON(c, http.StatusInternalServerError, ErrorResponse{
 			Error: err.Error(),
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, results)
+	writeJSON(c, http.StatusOK, results)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, data any) {
+func writeJSON(c *gin.Context, statusCode int, data any) {
 	respBytes, err := json.Marshal(data)
 	if err != nil {
-		http.Error(w, "failed to marshal response", http.StatusInternalServerError)
+		c.String(http.StatusInternalServerError, "failed to marshal response\n")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_, err = w.Write(append(respBytes, '\n'))
-	if err != nil {
+	c.Header("Content-Type", "application/json")
+	c.Status(statusCode)
+	if _, err = c.Writer.Write(append(respBytes, '\n')); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
 }

@@ -1,18 +1,18 @@
-package unpack
+package handler
 
-type PackHTTPRequest struct {
-	Input string `json:"input"` 
-}
-
-type PackHTTPResponse struct {
-	Result string `json:"result"`
-}
-
-type UnpackHTTPRequest struct {
+type PackRequest struct {
 	Input string `json:"input"`
 }
 
-type UnpackHTTPResponse struct {
+type PackResponse struct {
+	Result string `json:"result"`
+}
+
+type UnpackRequest struct {
+	Input string `json:"input"`
+}
+
+type UnpackResponse struct {
 	RequestID string `json:"request_id"`
 	Result    string `json:"result"`
 }

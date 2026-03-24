@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 )
 
 type AgifyResponse struct {
@@ -22,7 +23,10 @@ func main() {
 		name = os.Args[1]
 	}
 	apiURL := "https://api.agify.io/?name=" + url.QueryEscape(name)
-	resp, err := http.Get(apiURL)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	resp, err := client.Get(apiURL)
 	if err != nil {
 		log.Fatalf("failed to send request: %v", err)
 	}

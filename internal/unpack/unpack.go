@@ -2,9 +2,9 @@ package unpack
 
 import (
 	"context"
-	"strings"
 	"github.com/google/uuid"
 	"github.com/timur902/strings/internal/repository"
+	"strings"
 )
 
 func NewProvider(repo repository.Repository) *Provider {
